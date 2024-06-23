@@ -11,13 +11,16 @@ public class Main {
         Semaphore sem = new Semaphore(3);
         EnviaDados ed1 = new EnviaDados(sem, "envia");
         EnviaDados ed2 = new EnviaDados(sem, "ack");
+        EnviaDados timerThread = new EnviaDados(sem, "timer");
 
         ed2.start();
         ed1.start();
+        timerThread.start();
 
         try {
             ed1.join();
             ed2.join();
+            timerThread.join();
             rd.join();
         } catch (InterruptedException ex) {
             Logger.getLogger(Main.class.getName()).log(Level.SEVERE, null, ex);

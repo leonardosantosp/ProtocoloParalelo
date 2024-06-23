@@ -20,20 +20,17 @@ public class EnviaDados extends Thread {
     private final int portaLocalRecebimento = 2003;
     Semaphore sem;
     private final String funcao;
-    private int seqNum = 0;
-    private final int windowSize = 4; // Tamanho da janela deslizante
-    private boolean[] ackReceived;
-    private int[][] dadosParaEnvio;
-    private Timer timer;
-    private boolean finished = false;
+    private static int seqNum = 0;
+    private static final int windowSize = 4; // Tamanho da janela deslizante
+    private static boolean[] ackReceived = new boolean[windowSize];
+    private static int[][] dadosParaEnvio = new int[windowSize][350];
+    private static Timer timer = new Timer(true);
+    private static boolean finished = false;
 
     public EnviaDados(Semaphore sem, String funcao) {
         super(funcao);
         this.sem = sem;
         this.funcao = funcao;
-        ackReceived = new boolean[windowSize];
-        dadosParaEnvio = new int[windowSize][350];
-        timer = new Timer(true);
     }
 
     public String getFuncao() {
@@ -70,6 +67,25 @@ public class EnviaDados extends Thread {
         }
     }
 
+    private void startTimer() {
+        TimerTask resendTask = new TimerTask() {
+            @Override
+            public void run() {
+                if (finished) {
+                    timer.cancel();
+                    return;
+                }
+                for (int i = 0; i < windowSize; i++) {
+                    if (!ackReceived[i]) {
+                        System.out.println("Reenviando pacote. SeqNum: " + (seqNum + i));
+                        enviaPct(dadosParaEnvio[i], (seqNum + i) % windowSize);
+                    }
+                }
+            }
+        };
+        timer.schedule(resendTask, 5000, 5000); // Reenvio a cada 5 segundos
+    }
+
     @Override
     public void run() {
         switch (this.getFuncao()) {
@@ -78,24 +94,6 @@ public class EnviaDados extends Thread {
                 int cont = 0;
                 try (FileInputStream fileInput = new FileInputStream("entrada")) {
                     int lido;
-
-                    TimerTask resendTask = new TimerTask() {
-                        @Override
-                        public void run() {
-                            if (finished) {
-                                timer.cancel();
-                                return;
-                            }
-                            for (int i = 0; i < windowSize; i++) {
-                                if (!ackReceived[i]) {
-                                    System.out.println("Reenviando pacote. SeqNum: " + (seqNum + i));
-                                    enviaPct(dadosParaEnvio[i], (seqNum + i) % windowSize);
-                                }
-                            }
-                        }
-                    };
-                    timer.schedule(resendTask, 5000, 5000); // Reenvio a cada 5 segundos
-
                     while ((lido = fileInput.read()) != -1) {
                         dados[cont] = lido;
                         cont++;
@@ -141,6 +139,9 @@ public class EnviaDados extends Thread {
                 } catch (IOException e) {
                     System.out.println("Excecao: " + e.getMessage());
                 }
+                break;
+            case "timer":
+                startTimer(); // Start the timer when "timer" case is executed
                 break;
             default:
                 break;
