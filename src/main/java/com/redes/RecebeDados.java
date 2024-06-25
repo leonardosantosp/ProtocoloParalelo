@@ -65,7 +65,7 @@ public class RecebeDados extends Thread {
 
                     //probabilidade de 60% de perder
                     //gero um numero aleatorio contido entre [0,1]
-                    //se numero cair no intervalo [0, 0,6)
+                    //se numero cair no intervalo [0, 0,6]
                     //significa perda, logo, você não envia ACK
                     //para esse pacote, e não escreve ele no arquivo saida.
                     //se o numero cair no intervalo [0,6, 1,0]
