@@ -125,9 +125,10 @@ public class EnviaDados extends Thread {
 
                         ack = byteNumber.getInt();
 
+
                         if(ack == lastAck){
                             countRepeatedAck++;
-                        }else if(countRepeatedAck != 1){
+                        }else if(countRepeatedAck <= 1){
                             countRepeatedAck--;
                             expectedAck++;
                         }
@@ -139,6 +140,7 @@ public class EnviaDados extends Thread {
                             countRepeatedAck = 0;
                             System.out.println("3 Acks Duplicados");
                             for(int i = expectedAck; i <= seqNum; i++){
+                                System.out.println("reenviando pacote:" + i);
                                enviaPct(bufferPackage.get(i));
                             }
                         }

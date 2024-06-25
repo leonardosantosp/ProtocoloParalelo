@@ -76,7 +76,7 @@ public class RecebeDados extends Thread {
                     Random random = new Random();
                     double chance = random.nextDouble(); // Gera um número entre 0.0 e 1.0
 
-                    if (chance < 0.6) {
+                    if (chance < 0.6  && numSeqExpected != 0) {
                         System.out.println("pacote " + seq + " perdido.");
                     } else {
                         System.out.println("dado recebido");
