@@ -1,4 +1,13 @@
+/*
+ * To change this license header, choose License Headers in Project Properties.
+ * To change this template file, choose Tools | Templates
+ * and open the template in the editor.
+ */
 package com.redes;
+
+/**
+ * @author flavio
+ */
 
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -7,8 +16,10 @@ import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.SocketException;
 import java.nio.ByteBuffer;
-import java.util.Timer;
-import java.util.TimerTask;
+import java.nio.IntBuffer;
+import java.util.HashMap;
+import java.util.Objects;
+import java.util.Stack;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.concurrent.Semaphore;
@@ -20,32 +31,26 @@ public class EnviaDados extends Thread {
     private final int portaLocalRecebimento = 2003;
     Semaphore sem;
     private final String funcao;
-    private int seqNum = 0;
-    private final int windowSize = 4; // Tamanho da janela deslizante
-    private boolean[] ackReceived;
-    private int[][] dadosParaEnvio;
-    private Timer timer;
-    private boolean finished = false;
+    private static int seqNum = 0;
+    private static int expectedAck = 0;
+    private HashMap<Integer,int[]> buffer = new HashMap<>();
+    Stack<Integer> pilhaAcks = new Stack<>();
+
 
     public EnviaDados(Semaphore sem, String funcao) {
         super(funcao);
         this.sem = sem;
         this.funcao = funcao;
-        ackReceived = new boolean[windowSize];
-        dadosParaEnvio = new int[windowSize][350];
-        timer = new Timer(true);
     }
-
     public String getFuncao() {
         return funcao;
     }
 
-    private void enviaPct(int[] dados, int seqNum) {
-        ByteBuffer byteBuffer = ByteBuffer.allocate(dados.length * 4 + 4);
-        byteBuffer.putInt(seqNum);
-        for (int dado : dados) {
-            byteBuffer.putInt(dado);
-        }
+    private void enviaPct(int[] dados) {
+        //converte int[] para byte[]
+        ByteBuffer byteBuffer = ByteBuffer.allocate(dados.length * 4);
+        IntBuffer intBuffer = byteBuffer.asIntBuffer();
+        intBuffer.put(dados);
 
         byte[] buffer = byteBuffer.array();
 
@@ -58,11 +63,12 @@ public class EnviaDados extends Thread {
             try (DatagramSocket datagramSocket = new DatagramSocket(portaLocalEnvio)) {
                 DatagramPacket packet = new DatagramPacket(
                         buffer, buffer.length, address, portaDestino);
-
                 datagramSocket.send(packet);
+                seqNum++;
             }
 
-            System.out.println("Envio feito. SeqNum: " + seqNum);
+            System.out.println("Pacote " + dados[0] + " enviado." );
+
         } catch (SocketException ex) {
             Logger.getLogger(EnviaDados.class.getName()).log(Level.SEVERE, null, ex);
         } catch (IOException | InterruptedException ex) {
@@ -74,76 +80,76 @@ public class EnviaDados extends Thread {
     public void run() {
         switch (this.getFuncao()) {
             case "envia":
-                int[] dados = new int[350];
-                int cont = 0;
-                try (FileInputStream fileInput = new FileInputStream("entrada")) {
+                //variavel onde os dados lidos serao gravados
+                int[] dados = new int[351];
+                //contador, para gerar pacotes com 1400 Bytes de tamanho
+                //como cada int ocupa 4 Bytes, estamos lendo blocos com 350
+                //int's por vez.
+                int cont = 1;
+
+                try (FileInputStream fileInput = new FileInputStream("entrada");) {
                     int lido;
-
-                    TimerTask resendTask = new TimerTask() {
-                        @Override
-                        public void run() {
-                            if (finished) {
-                                timer.cancel();
-                                return;
-                            }
-                            for (int i = 0; i < windowSize; i++) {
-                                if (!ackReceived[i]) {
-                                    System.out.println("Reenviando pacote. SeqNum: " + (seqNum + i));
-                                    enviaPct(dadosParaEnvio[i], (seqNum + i) % windowSize);
-                                }
-                            }
-                        }
-                    };
-                    timer.schedule(resendTask, 5000, 5000); // Reenvio a cada 5 segundos
-
                     while ((lido = fileInput.read()) != -1) {
                         dados[cont] = lido;
                         cont++;
-                        if (cont == 350) {
-                            System.arraycopy(dados, 0, dadosParaEnvio[seqNum % windowSize], 0, 350);
-                            enviaPct(dadosParaEnvio[seqNum % windowSize], seqNum);
-                            seqNum++;
-                            cont = 0;
+                        if (cont == 351) {
+                            //envia pacotes a cada 350 int's lidos.
+                            //ou seja, 1400 Bytes.
+                            dados[0] = seqNum;
+                            buffer.put(seqNum,dados);
+                            enviaPct(dados);
+                            cont = 1;
                         }
                     }
 
-                    if (cont > 0) {
-                        for (int i = cont; i < 350; i++)
-                            dados[i] = -1;
-                        System.arraycopy(dados, 0, dadosParaEnvio[seqNum % windowSize], 0, 350);
-                        enviaPct(dadosParaEnvio[seqNum % windowSize], seqNum);
-                        seqNum++;
-                    }
-
-                    finished = true;
-                    timer.cancel(); // Cancelar o timer após o envio de todos os pacotes
-
+                    //ultimo pacote eh preenchido com
+                    //-1 ate o fim, indicando que acabou
+                    //o envio dos dados.
+                    for (int i = cont; i < 351; i++)
+                        dados[i] = -1;
+                    enviaPct(dados);
                 } catch (IOException e) {
                     System.out.println("Error message: " + e.getMessage());
                 }
                 break;
             case "ack":
-                try (DatagramSocket serverSocket = new DatagramSocket(portaLocalRecebimento)) {
-                    byte[] receiveData = new byte[10];
-                    String retorno = "";
-                    while (!retorno.equals("F")) {
+                try {
+                    DatagramSocket serverSocket = new DatagramSocket(portaLocalRecebimento);
+                    byte[] receiveData = new byte[4];
+                    var ack = 0;
+                    while (ack != -1) {
                         DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
                         serverSocket.receive(receivePacket);
-                        retorno = new String(receivePacket.getData()).trim();
-                        System.out.println("Ack recebido: " + retorno);
-                        if (retorno.startsWith("A")) {
-                            int ackNum = Integer.parseInt(retorno.substring(1).trim());
-                            ackReceived[ackNum % windowSize] = true;
-                            sem.release();
+                        var byteNumber = ByteBuffer.wrap(receivePacket.getData());
+                        ack = byteNumber.getInt(); // Ack recebe seu valor.
+                        System.out.println("Ack " + ack + " recebido.");
+
+                        if(expectedAck != ack){ // Vendo se o ack é o esperado. [0, 1, 2, 3, 4, ...]
+                            pilhaAcks.push(ack);
+                            System.out.println("Ack " + ack + " stackado na pilha!");
+                            System.out.println("Ack " + expectedAck + " é o esperado.");
+                            if(pilhaAcks.size() >= 3){
+                                var a = pilhaAcks.pop();
+                                var b = pilhaAcks.pop();
+                                var c = pilhaAcks.pop();
+                                if(Objects.equals(a, b) && Objects.equals(a, c)){
+                                    System.out.println("====== 3 acks duplicados! ======");
+                                }
+                            }
+                        }else{ // Salvar na tabelaHash
+
+                            expectedAck++;
                         }
+                        sem.release();
                     }
-                    finished = true;
                 } catch (IOException e) {
                     System.out.println("Excecao: " + e.getMessage());
                 }
                 break;
+            //TODO timer
             default:
                 break;
         }
+
     }
 }
