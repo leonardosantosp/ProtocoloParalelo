@@ -1,13 +1,4 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package com.redes;
-
-/**
- * @author flavio
- */
 
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -16,8 +7,8 @@ import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.SocketException;
 import java.nio.ByteBuffer;
-import java.nio.IntBuffer;
-import java.util.Random;
+//import java.nio.IntBuffer;
+//import java.util.Random;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -26,15 +17,17 @@ public class RecebeDados extends Thread {
     private final int portaLocalReceber = 2001;
     private final int portaLocalEnviar = 2002;
     private final int portaDestino = 2003;
-    private static int numSeqExpected = 0;
+    private static long numSeqExpected = 0;
 
-    private void enviaAck(boolean fim, int seq) {
+
+
+    private void enviaAck(boolean fim, long seq) {
 
         try {
             InetAddress address = InetAddress.getByName("localhost");
             try (DatagramSocket datagramSocket = new DatagramSocket(portaLocalEnviar)) {
-                ByteBuffer buffer = ByteBuffer.allocate(4);
-                buffer.putInt(fim ? -1 : seq);
+                ByteBuffer buffer = ByteBuffer.allocate(8);
+                buffer.putLong(fim ? -1 : seq);
                 byte[] sendData = buffer.array();
 
                 DatagramPacket packet = new DatagramPacket(
@@ -53,7 +46,7 @@ public class RecebeDados extends Thread {
     public void run() {
         try {
             DatagramSocket serverSocket = new DatagramSocket(portaLocalReceber);
-            byte[] receiveData = new byte[1404];
+            byte[] receiveData = new byte[2808];
             try (FileOutputStream fileOutput = new FileOutputStream("saida")) {
                 boolean fim = false;
                 while (!fim) {
@@ -63,6 +56,15 @@ public class RecebeDados extends Thread {
 
                     byte[] tmp = receivePacket.getData();
 
+                    long seq = ((long)(tmp[0] & 0xff) << 56) +
+                            ((long)(tmp[1] & 0xff) << 48) +
+                            ((long)(tmp[2] & 0xff) << 40) +
+                            ((long)(tmp[3] & 0xff) << 32) +
+                            ((long)(tmp[4] & 0xff) << 24) +
+                            ((long)(tmp[5] & 0xff) << 16) +
+                            ((long)(tmp[6] & 0xff) << 8) +
+                            ((long)(tmp[7] & 0xff));
+
                     //probabilidade de 60% de perder
                     //gero um numero aleatorio contido entre [0,1]
                     //se numero cair no intervalo [0, 0,6]
@@ -71,32 +73,40 @@ public class RecebeDados extends Thread {
                     //se o numero cair no intervalo [0,6, 1,0]
                     //assume-se o recebimento com sucesso.
 
-                    int seq = ((tmp[0] & 0xff) << 24) + ((tmp[1] & 0xff) << 16) + ((tmp[2] & 0xff) << 8) + ((tmp[3] & 0xff));
+                    //Random random = new Random();
+                    //double chance = random.nextDouble(); // Gera um número entre 0.0 e 1.0
+                    //
+                    //if (chance < 0.6  && numSeqExpected != 0) {
+                    //    System.out.println("pacote " + seq + " perdido.");
+                    //} else {
 
-                    Random random = new Random();
-                    double chance = random.nextDouble(); // Gera um número entre 0.0 e 1.0
-
-                    if (chance < 0.6  && numSeqExpected != 0) {
-                        System.out.println("pacote " + seq + " perdido.");
-                    } else {
-                        System.out.println("dado recebido");
-                        for (int i = 4; i < tmp.length; i = i + 4) {
-                            int dados = ((tmp[i] & 0xff) << 24) + ((tmp[i + 1] & 0xff) << 16) + ((tmp[i + 2] & 0xff) << 8) + ((tmp[i + 3] & 0xff));
-
-                            if (dados == -1) {
-                                fim = true;
-                                break;
-                            }
-                            fileOutput.write(dados);
+                    System.out.println("dado recebido");
+                    for (int i = 8; i < tmp.length; i = i + 8) {
+                        long dados = ((long)(tmp[i] & 0xff) << 56) +
+                                ((long)(tmp[i + 1] & 0xff) << 48) +
+                                ((long)(tmp[i + 2] & 0xff) << 40) +
+                                ((long)(tmp[i + 3] & 0xff) << 32) +
+                                ((long)(tmp[i + 4] & 0xff) << 24) +
+                                ((long)(tmp[i + 5] & 0xff) << 16) +
+                                ((long)(tmp[i + 6] & 0xff) << 8) +
+                                ((long)(tmp[i + 7] & 0xff));
+                        if (dados == -1) {
+                            fim = true;
+                            break;
                         }
-                    }
+                        fileOutput.write((int) dados);
 
-                    if(numSeqExpected == seq){
-                        enviaAck(fim, seq);
-                        numSeqExpected++;
-                    }else{
-                        enviaAck(fim, numSeqExpected - 1);
                     }
+                    enviaAck(fim, seq);
+
+                    //}
+
+                    //if(numSeqExpected == seq){
+                    //    enviaAck(fim, seq);
+                    //    numSeqExpected++;
+                    //}else{
+                    //    enviaAck(fim, numSeqExpected - 1);
+                    //}
                 }
             }
         } catch (IOException e) {

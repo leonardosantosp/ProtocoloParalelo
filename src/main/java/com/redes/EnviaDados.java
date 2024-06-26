@@ -1,13 +1,4 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package com.redes;
-
-/**
- * @author flavio
- */
 
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -17,8 +8,8 @@ import java.net.InetAddress;
 import java.net.SocketException;
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
+import java.nio.LongBuffer;
 import java.util.HashMap;
-import java.util.Stack;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.concurrent.Semaphore;
@@ -30,12 +21,11 @@ public class EnviaDados extends Thread {
     private final int portaLocalRecebimento = 2003;
     Semaphore sem;
     private final String funcao;
-    private static int seqNum = 0;
-    private static int expectedAck = 0;
-    private static HashMap<Integer,int[]> bufferPackage = new HashMap<>();
-    private static int countRepeatedAck = 0;
-
-    private static int lastAck = 0;
+    private static long seqNum = 0;
+    //private static int expectedAck = 0;
+    //private static HashMap<Integer,int[]> bufferPackage = new HashMap<>();
+    //private static int countRepeatedAck = 0;
+    //private static int lastAck = 0;
 
     public EnviaDados(Semaphore sem, String funcao) {
         super(funcao);
@@ -47,11 +37,10 @@ public class EnviaDados extends Thread {
         return funcao;
     }
 
-    private void enviaPct(int[] dados) {
-        //converte int[] para byte[]
-        ByteBuffer byteBuffer = ByteBuffer.allocate(dados.length * 4);
-        IntBuffer intBuffer = byteBuffer.asIntBuffer();
-        intBuffer.put(dados);
+    private void enviaPct(long[] dados) {
+        ByteBuffer byteBuffer = ByteBuffer.allocate(dados.length * 8);
+        LongBuffer longBuffer= byteBuffer.asLongBuffer();
+        longBuffer.put(dados);
 
         byte[] buffer = byteBuffer.array();
 
@@ -66,8 +55,13 @@ public class EnviaDados extends Thread {
                         buffer, buffer.length, address, portaDestino);
 
                 datagramSocket.send(packet);
-                bufferPackage.put(seqNum,dados);
-                seqNum++;
+                //bufferPackage.put(seqNum,dados);
+                if(seqNum + 1 == Long.MAX_VALUE){
+                    seqNum = 0;
+                }else{
+                    seqNum++;
+                }
+
             }
 
             System.out.println("Envio feito." + dados[0]);
@@ -83,7 +77,7 @@ public class EnviaDados extends Thread {
         switch (this.getFuncao()) {
             case "envia":
                 //variavel onde os dados lidos serao gravados
-                int[] dados = new int[351];
+                long[] dados = new long[351];
                 //contador, para gerar pacotes com 1400 Bytes de tamanho
                 //como cada int ocupa 4 Bytes, estamos lendo blocos com 350
                 //int's por vez.
@@ -116,34 +110,34 @@ public class EnviaDados extends Thread {
             case "ack":
                 try {
                     DatagramSocket serverSocket = new DatagramSocket(portaLocalRecebimento);
-                    byte[] receiveData = new byte[4];
-                    var ack = 0;
+                    byte[] receiveData = new byte[8];
+                    long ack = 0;
                     while (ack != -1) {
                         DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
                         serverSocket.receive(receivePacket);
                         var byteNumber = ByteBuffer.wrap(receivePacket.getData());
 
-                        ack = byteNumber.getInt();
+                        ack = byteNumber.getLong();
 
 
-                        if(ack == lastAck){
-                            countRepeatedAck++;
-                        }else if(countRepeatedAck <= 1){
-                            countRepeatedAck--;
-                            expectedAck++;
-                        }
-                        lastAck = ack;
+                        //if(ack == lastAck){
+                        //    countRepeatedAck++;
+                        //}else if(countRepeatedAck <= 1){
+                        //    countRepeatedAck--;
+                        //    expectedAck++;
+                        //}
+                        //lastAck = ack;
 
                         System.out.println("Ack recebido " + ack + ".");
 
-                        if(countRepeatedAck == 3){
-                            countRepeatedAck = 0;
-                            System.out.println("3 Acks Duplicados");
-                            for(int i = expectedAck; i <= seqNum; i++){
-                                System.out.println("reenviando pacote:" + i);
-                               enviaPct(bufferPackage.get(i));
-                            }
-                        }
+                        //if(countRepeatedAck == 3){
+                        //    countRepeatedAck = 0;
+                        //    System.out.println("3 Acks Duplicados");
+                        //    for(int i = expectedAck; i <= seqNum; i++){
+                        //        System.out.println("reenviando pacote:" + i);
+                        //        enviaPct(bufferPackage.get(i));
+                        //    }
+                        //}
 
                         sem.release();
                     }
